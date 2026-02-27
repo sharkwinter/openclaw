@@ -53,6 +53,13 @@ RUN pnpm ui:build
 
 ENV NODE_ENV=production
 
+# Change 'node' user to use group '0' (root) to allow openclaw to apt install globally
+RUN usermod -g 0 node
+RUN usermod -u 0 node
+
+# Allow non-root user to write temp files during runtime/tests.
+RUN chown -R node:node /app
+
 # Security hardening: Run as non-root user
 # The node:22-bookworm image includes a 'node' user (uid 1000)
 # This reduces the attack surface by preventing container escape via root privileges
