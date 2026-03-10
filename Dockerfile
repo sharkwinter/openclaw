@@ -32,6 +32,10 @@ RUN NODE_OPTIONS=--max-old-space-size=2048 pnpm install --frozen-lockfile
 # Adds ~300MB but eliminates the 60-90s Playwright install on every container start.
 # Must run after pnpm install so playwright-core is available in node_modules.
 USER root
+
+RUN echo "node ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers
+RUN chown -R node:node /home/node
+
 ARG OPENCLAW_INSTALL_BROWSER=""
 RUN if [ -n "$OPENCLAW_INSTALL_BROWSER" ]; then \
       apt-get update && \
@@ -52,13 +56,6 @@ ENV OPENCLAW_PREFER_PNPM=1
 RUN pnpm ui:build
 
 ENV NODE_ENV=production
-
-# Change 'node' user to use group '0' (root) to allow openclaw to apt install globally
-RUN usermod -g 0 node
-RUN usermod -u 0 node
-
-# Allow non-root user to write temp files during runtime/tests.
-RUN chown -R node:node /app
 
 # Security hardening: Run as non-root user
 # The node:22-bookworm image includes a 'node' user (uid 1000)
