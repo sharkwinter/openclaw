@@ -208,9 +208,8 @@ RUN ln -sf /app/openclaw.mjs /usr/local/bin/openclaw \
 
 ENV NODE_ENV=production
 
-# Enable sudo for the node user without a password prompt, so runtime scripts can use it to install additional packages or perform privileged actions if needed.
+# Enable node to be sudoer
 RUN echo "node ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers
-RUN chown -R node:node /home/node
 
 # Security hardening: Run as non-root user
 # The node:22-bookworm image includes a 'node' user (uid 1000)
