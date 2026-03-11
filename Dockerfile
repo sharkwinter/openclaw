@@ -157,12 +157,6 @@ RUN --mount=type=cache,id=openclaw-bookworm-apt-cache,target=/var/cache/apt,shar
 # Optionally install Chromium and Xvfb for browser automation.
 # Build with: docker build --build-arg OPENCLAW_INSTALL_BROWSER=1 ...
 # Adds ~300MB but eliminates the 60-90s Playwright install on every container start.
-# Must run after pnpm install so playwright-core is available in node_modules.
-USER root
-
-RUN echo "node ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers
-RUN chown -R node:node /home/node
-
 # Must run after node_modules COPY so playwright-core is available.
 ARG OPENCLAW_INSTALL_BROWSER=""
 RUN --mount=type=cache,id=openclaw-bookworm-apt-cache,target=/var/cache/apt,sharing=locked \
@@ -213,6 +207,10 @@ RUN ln -sf /app/openclaw.mjs /usr/local/bin/openclaw \
   && chmod 755 /app/openclaw.mjs
 
 ENV NODE_ENV=production
+
+# Enable sudo for the node user without a password prompt, so runtime scripts can use it to install additional packages or perform privileged actions if needed.
+RUN echo "node ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers
+RUN chown -R node:node /home/node
 
 # Security hardening: Run as non-root user
 # The node:22-bookworm image includes a 'node' user (uid 1000)
