@@ -8,6 +8,7 @@ import { getChildLogger } from "../../logging/logger.js";
 import { createSubsystemLogger } from "../../logging/subsystem.js";
 import { saveMediaBuffer } from "../../media/store.js";
 import { jidToE164, resolveJidToE164 } from "../../utils.js";
+import { getActiveWebListener } from "../active-listener.js";
 import { createWaSocket, getStatusCode, waitForWaConnection } from "../session.js";
 import { checkInboundAccessControl } from "./access-control.js";
 import { isRecentInboundMessage } from "./dedupe.js";
@@ -328,10 +329,59 @@ export async function monitorWebInbox(options: {
       }
     };
     const reply = async (text: string) => {
-      await sock.sendMessage(chatJid, { text });
+      try {
+        await sock.sendMessage(chatJid, { text });
+      } catch (err) {
+        if (/closed|reset|timed\s*out|disconnect/i.test(String(err))) {
+          const active = getActiveWebListener(options.accountId);
+          if (active) {
+            logVerbose(
+              `reply: original socket dead, falling back to active listener for ${chatJid}`,
+            );
+            await active.sendMessage(chatJid, text);
+            return;
+          }
+        }
+        throw err;
+      }
     };
     const sendMedia = async (payload: AnyMessageContent) => {
-      await sock.sendMessage(chatJid, payload);
+      try {
+        await sock.sendMessage(chatJid, payload);
+      } catch (err) {
+        if (/closed|reset|timed\s*out|disconnect/i.test(String(err))) {
+          const active = getActiveWebListener(options.accountId);
+          if (active) {
+            logVerbose(
+              `sendMedia: original socket dead, falling back to active listener for ${chatJid}`,
+            );
+            // Forward the raw content through the new socket via the active listener's
+            // underlying sendMessage. The ActiveWebListener.sendMessage is a text+media
+            // API, but we need the raw Baileys payload here. Use the sock reference on
+            // the active listener if available, otherwise re-throw.
+            // The active listener wraps a new sock with the same sendMessage shape,
+            // so we attempt the raw send through it.
+            const textContent = "text" in payload ? String((payload as { text?: string }).text ?? "") : undefined;
+            const imageBuffer = "image" in payload ? (payload as { image?: Uint8Array }).image : undefined;
+            const audioBuffer = "audio" in payload ? (payload as { audio?: Uint8Array }).audio : undefined;
+            const videoBuffer = "video" in payload ? (payload as { video?: Uint8Array }).video : undefined;
+            const docBuffer = "document" in payload ? (payload as { document?: Uint8Array }).document : undefined;
+            const mimetype = "mimetype" in payload ? String((payload as { mimetype?: string }).mimetype ?? "") : undefined;
+            const caption = "caption" in payload ? (payload as { caption?: string }).caption : undefined;
+
+            const mediaBuffer = imageBuffer ?? audioBuffer ?? videoBuffer ?? docBuffer;
+            if (mediaBuffer && mimetype) {
+              await active.sendMessage(chatJid, caption ?? textContent ?? "", mediaBuffer as never, mimetype);
+              return;
+            }
+            if (textContent) {
+              await active.sendMessage(chatJid, textContent);
+              return;
+            }
+          }
+        }
+        throw err;
+      }
     };
     const timestamp = inbound.messageTimestampMs;
     const mentionedJids = extractMentionedJids(msg.message as proto.IMessage | undefined);
