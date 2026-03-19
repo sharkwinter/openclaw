@@ -54,8 +54,8 @@ services:
     cap_drop:
       - NET_RAW
       - NET_ADMIN
-    security_opt:
-      - no-new-privileges:true
+    # security_opt:
+    #   - no-new-privileges:true
     environment:
       HOME: /home/node
       TERM: xterm-256color
@@ -70,7 +70,7 @@ services:
       - ${OPENCLAW_WORKSPACE_DIR}:/home/node/.openclaw/workspace
     stdin_open: true
     tty: true
-    init: true
+    # init: true
     entrypoint: ["node", "dist/index.js"]
     depends_on:
       - openclaw-gateway

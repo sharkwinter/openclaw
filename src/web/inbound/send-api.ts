@@ -1,7 +1,7 @@
 import type { AnyMessageContent, WAPresence } from "@whiskeysockets/baileys";
+import type { ActiveWebSendOptions } from "../active-listener.js";
 import { recordChannelActivity } from "../../infra/channel-activity.js";
 import { toWhatsappJid } from "../../utils.js";
-import type { ActiveWebSendOptions } from "../active-listener.js";
 
 function recordWhatsAppOutbound(accountId: string) {
   recordChannelActivity({
@@ -104,6 +104,15 @@ export function createWebSendApi(params: {
           },
         },
       } as AnyMessageContent);
+    },
+    sendRawMessage: async (
+      jid: string,
+      content: Record<string, unknown>,
+    ): Promise<{ messageId: string }> => {
+      const result = await params.sock.sendMessage(jid, content as AnyMessageContent);
+      recordWhatsAppOutbound(params.defaultAccountId);
+      const messageId = resolveOutboundMessageId(result);
+      return { messageId };
     },
     sendComposingTo: async (to: string): Promise<void> => {
       const jid = toWhatsappJid(to);

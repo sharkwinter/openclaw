@@ -1,5 +1,6 @@
 import type { AnyMessageContent, proto, WAMessage } from "@whiskeysockets/baileys";
 import { DisconnectReason, isJidGroup } from "@whiskeysockets/baileys";
+import type { WebInboundMessage, WebListenerCloseReason } from "./types.js";
 import { createInboundDebouncer } from "../../auto-reply/inbound-debounce.js";
 import { formatLocationText } from "../../channels/location.js";
 import { logVerbose, shouldLogVerbose } from "../../globals.js";
@@ -21,7 +22,6 @@ import {
 } from "./extract.js";
 import { downloadInboundMedia } from "./media.js";
 import { createWebSendApi } from "./send-api.js";
-import type { WebInboundMessage, WebListenerCloseReason } from "./types.js";
 
 export async function monitorWebInbox(options: {
   verbose: boolean;
@@ -355,25 +355,14 @@ export async function monitorWebInbox(options: {
             logVerbose(
               `sendMedia: original socket dead, falling back to active listener for ${chatJid}`,
             );
-            // Forward the raw content through the new socket via the active listener's
-            // underlying sendMessage. The ActiveWebListener.sendMessage is a text+media
-            // API, but we need the raw Baileys payload here. Use the sock reference on
-            // the active listener if available, otherwise re-throw.
-            // The active listener wraps a new sock with the same sendMessage shape,
-            // so we attempt the raw send through it.
-            const textContent = "text" in payload ? String((payload as { text?: string }).text ?? "") : undefined;
-            const imageBuffer = "image" in payload ? (payload as { image?: Uint8Array }).image : undefined;
-            const audioBuffer = "audio" in payload ? (payload as { audio?: Uint8Array }).audio : undefined;
-            const videoBuffer = "video" in payload ? (payload as { video?: Uint8Array }).video : undefined;
-            const docBuffer = "document" in payload ? (payload as { document?: Uint8Array }).document : undefined;
-            const mimetype = "mimetype" in payload ? String((payload as { mimetype?: string }).mimetype ?? "") : undefined;
-            const caption = "caption" in payload ? (payload as { caption?: string }).caption : undefined;
-
-            const mediaBuffer = imageBuffer ?? audioBuffer ?? videoBuffer ?? docBuffer;
-            if (mediaBuffer && mimetype) {
-              await active.sendMessage(chatJid, caption ?? textContent ?? "", mediaBuffer as never, mimetype);
+            // Forward the raw Baileys payload losslessly through the reconnected socket.
+            if (active.sendRawMessage) {
+              await active.sendRawMessage(chatJid, payload as unknown as Record<string, unknown>);
               return;
             }
+            // Fallback for listeners that don't expose sendRawMessage (e.g. IPC stubs).
+            const textContent =
+              "text" in payload ? String((payload as { text?: string }).text ?? "") : undefined;
             if (textContent) {
               await active.sendMessage(chatJid, textContent);
               return;

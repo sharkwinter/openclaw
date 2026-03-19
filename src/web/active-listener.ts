@@ -1,5 +1,5 @@
-import { formatCliCommand } from "../cli/command-format.js";
 import type { PollInput } from "../polls.js";
+import { formatCliCommand } from "../cli/command-format.js";
 import { DEFAULT_ACCOUNT_ID } from "../routing/session-key.js";
 
 export type ActiveWebSendOptions = {
@@ -15,6 +15,11 @@ export type ActiveWebListener = {
     mediaBuffer?: Buffer,
     mediaType?: string,
     options?: ActiveWebSendOptions,
+  ) => Promise<{ messageId: string }>;
+  /** Forward a raw Baileys payload through the current socket — lossless, no decomposition. */
+  sendRawMessage?: (
+    jid: string,
+    content: Record<string, unknown>,
   ) => Promise<{ messageId: string }>;
   sendPoll: (to: string, poll: PollInput) => Promise<{ messageId: string }>;
   sendReaction: (
