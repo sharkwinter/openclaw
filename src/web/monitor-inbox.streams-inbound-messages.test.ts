@@ -3,6 +3,7 @@ import path from "node:path";
 import "./monitor-inbox.test-harness.js";
 import { describe, expect, it, vi } from "vitest";
 import { monitorWebInbox } from "./inbound.js";
+import { setActiveWebListener } from "./active-listener.js";
 import {
   DEFAULT_ACCOUNT_ID,
   getAuthDir,
@@ -135,6 +136,51 @@ describe("web monitor inbox", () => {
     });
 
     await listener.close();
+  });
+
+  it("retries media send via active listener when captured socket is stale", async () => {
+    const onMessage = vi.fn(async (msg) => {
+      await msg.sendMedia({
+        image: Buffer.from("img"),
+        caption: "cap",
+        mimetype: "image/jpeg",
+      });
+    });
+
+    const { listener, sock } = await startInboxMonitor(onMessage);
+    const staleError = new Error("Connection Closed");
+    const activeSendRawMessage = vi.fn(async () => ({ messageId: "msg-fallback" }));
+
+    sock.sendMessage.mockRejectedValueOnce(staleError);
+    setActiveWebListener(DEFAULT_ACCOUNT_ID, {
+      sendMessage: vi.fn(async () => ({ messageId: "msg-text" })),
+      sendRawMessage: activeSendRawMessage,
+      sendPoll: vi.fn(async () => ({ messageId: "poll" })),
+      sendReaction: vi.fn(async () => {}),
+      sendComposingTo: vi.fn(async () => {}),
+    });
+
+    const upsert = buildMessageUpsert({
+      id: "media-1",
+      remoteJid: "999@s.whatsapp.net",
+      text: "ping",
+      timestamp: 1_700_000_050,
+      pushName: "Tester",
+    });
+    sock.ev.emit("messages.upsert", upsert);
+    await tick();
+
+    expect(activeSendRawMessage).toHaveBeenCalledWith(
+      "999@s.whatsapp.net",
+      expect.objectContaining({
+        image: expect.any(Buffer),
+        caption: "cap",
+        mimetype: "image/jpeg",
+      }),
+    );
+
+    await listener.close();
+    setActiveWebListener(DEFAULT_ACCOUNT_ID, null);
   });
 
   it("deduplicates redelivered messages by id", async () => {

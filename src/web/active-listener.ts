@@ -16,6 +16,10 @@ export type ActiveWebListener = {
     mediaType?: string,
     options?: ActiveWebSendOptions,
   ) => Promise<{ messageId: string }>;
+  sendRawMessage?: (
+    jid: string,
+    content: Record<string, unknown>,
+  ) => Promise<{ messageId: string }>;
   sendPoll: (to: string, poll: PollInput) => Promise<{ messageId: string }>;
   sendReaction: (
     chatJid: string,

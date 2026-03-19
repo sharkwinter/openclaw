@@ -8,6 +8,7 @@ import { getChildLogger } from "../../logging/logger.js";
 import { createSubsystemLogger } from "../../logging/subsystem.js";
 import { saveMediaBuffer } from "../../media/store.js";
 import { jidToE164, resolveJidToE164 } from "../../utils.js";
+import { getActiveWebListener } from "../active-listener.js";
 import { createWaSocket, getStatusCode, waitForWaConnection } from "../session.js";
 import { checkInboundAccessControl } from "./access-control.js";
 import { isRecentInboundMessage } from "./dedupe.js";
@@ -21,6 +22,28 @@ import {
 import { downloadInboundMedia } from "./media.js";
 import { createWebSendApi } from "./send-api.js";
 import type { WebInboundMessage, WebListenerCloseReason } from "./types.js";
+
+const TRANSIENT_SEND_ERROR = /(closed|reset|timed\s*out|disconnect|not\s*connected|not\s*open|socket|stream\s*erro?r|econn|etimedout)/i;
+
+function isTransientSendError(err: unknown): boolean {
+  return TRANSIENT_SEND_ERROR.test(String(err));
+}
+
+async function resolveActiveListenerForRetry(accountId: string): Promise<
+  import("../active-listener.js").ActiveWebListener | null
+> {
+  const delaysMs = [0, 250, 750];
+  for (const delayMs of delaysMs) {
+    if (delayMs > 0) {
+      await new Promise((resolve) => setTimeout(resolve, delayMs));
+    }
+    const active = getActiveWebListener(accountId);
+    if (active) {
+      return active;
+    }
+  }
+  return null;
+}
 
 export async function monitorWebInbox(options: {
   verbose: boolean;
@@ -328,10 +351,45 @@ export async function monitorWebInbox(options: {
       }
     };
     const reply = async (text: string) => {
-      await sock.sendMessage(chatJid, { text });
+      try {
+        await sock.sendMessage(chatJid, { text });
+      } catch (err) {
+        if (!isTransientSendError(err)) {
+          throw err;
+        }
+        const active = await resolveActiveListenerForRetry(options.accountId);
+        if (!active) {
+          throw err;
+        }
+        logVerbose(`reply: original socket stale, retrying via active listener for ${chatJid}`);
+        await active.sendMessage(chatJid, text);
+      }
     };
     const sendMedia = async (payload: AnyMessageContent) => {
-      await sock.sendMessage(chatJid, payload);
+      try {
+        await sock.sendMessage(chatJid, payload);
+      } catch (err) {
+        if (!isTransientSendError(err)) {
+          throw err;
+        }
+        const active = await resolveActiveListenerForRetry(options.accountId);
+        if (!active) {
+          throw err;
+        }
+        logVerbose(`sendMedia: original socket stale, retrying via active listener for ${chatJid}`);
+        if (active.sendRawMessage) {
+          await active.sendRawMessage(chatJid, payload as unknown as Record<string, unknown>);
+          return;
+        }
+        // Backward-compatible fallback for listener stubs that don't expose raw send.
+        const textContent =
+          "text" in payload ? String((payload as { text?: string }).text ?? "") : undefined;
+        if (textContent) {
+          await active.sendMessage(chatJid, textContent);
+          return;
+        }
+        throw err;
+      }
     };
     const timestamp = inbound.messageTimestampMs;
     const mentionedJids = extractMentionedJids(msg.message as proto.IMessage | undefined);

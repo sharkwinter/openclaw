@@ -151,6 +151,23 @@ describe("createWebSendApi", () => {
     );
   });
 
+  it("forwards raw Baileys payloads and records outbound activity", async () => {
+    const payload = {
+      image: Buffer.from("img"),
+      caption: "cap",
+      mimetype: "image/jpeg",
+      contextInfo: { mentionedJid: ["123@s.whatsapp.net"] },
+    };
+    const res = await api.sendRawMessage("999@s.whatsapp.net", payload);
+    expect(sendMessage).toHaveBeenCalledWith("999@s.whatsapp.net", payload);
+    expect(res.messageId).toBe("msg-1");
+    expect(recordChannelActivity).toHaveBeenCalledWith({
+      channel: "whatsapp",
+      accountId: "main",
+      direction: "outbound",
+    });
+  });
+
   it("sends composing presence updates to the recipient JID", async () => {
     await api.sendComposingTo("+1555");
     expect(sendPresenceUpdate).toHaveBeenCalledWith("composing", "1555@s.whatsapp.net");
