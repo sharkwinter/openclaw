@@ -181,6 +181,57 @@ describe("deliverWebReply", () => {
     expect(logVerbose).toHaveBeenCalled();
   });
 
+  it("extracts markdown image links from text and sends as media", async () => {
+    const msg = makeMsg();
+    mockLoadedImageMedia();
+
+    await deliverWebReply({
+      replyResult: {
+        text: "Here is the chart:\n\n![optimization](https://example.com/plot.png)\n\nLooks good.",
+      },
+      msg,
+      maxMediaBytes: 1024 * 1024,
+      textLimit: 200,
+      replyLogger,
+      skipLog: true,
+    });
+
+    expect(loadWebMedia).toHaveBeenCalledWith("https://example.com/plot.png", {
+      maxBytes: 1024 * 1024,
+      localRoots: undefined,
+    });
+    expect(msg.sendMedia).toHaveBeenCalledWith(
+      expect.objectContaining({
+        image: expect.any(Buffer),
+        caption: "Here is the chart:\n\nLooks good.",
+        mimetype: "image/jpeg",
+      }),
+    );
+    expect(msg.reply).not.toHaveBeenCalled();
+  });
+
+  it("prefers explicit mediaUrl over markdown image links", async () => {
+    const msg = makeMsg();
+    mockLoadedImageMedia();
+
+    await deliverWebReply({
+      replyResult: {
+        text: "![inline](https://example.com/from-text.png)",
+        mediaUrl: "https://example.com/from-payload.jpg",
+      },
+      msg,
+      maxMediaBytes: 1024 * 1024,
+      textLimit: 200,
+      replyLogger,
+      skipLog: true,
+    });
+
+    expect(loadWebMedia).toHaveBeenCalledWith("https://example.com/from-payload.jpg", {
+      maxBytes: 1024 * 1024,
+      localRoots: undefined,
+    });
+  });
+
   it("retries media send on transient failure", async () => {
     const msg = makeMsg();
     mockLoadedImageMedia();

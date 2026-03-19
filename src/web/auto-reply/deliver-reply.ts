@@ -14,6 +14,24 @@ import { elide } from "./util.js";
 
 const REASONING_PREFIX = "reasoning:";
 
+function extractMarkdownImageMedia(text: string): { text: string; mediaUrls: string[] } {
+  const mediaUrls: string[] = [];
+  const cleanedText = text.replace(/!\[[^\]]*\]\(([^)]+)\)/g, (_match, rawTarget: string) => {
+    const target = String(rawTarget ?? "").trim();
+    if (!target) {
+      return "";
+    }
+    const withoutTitle = target.split(/\s+/)[0] ?? "";
+    const unwrapped = withoutTitle.replace(/^<|>$/g, "");
+    if (unwrapped) {
+      mediaUrls.push(unwrapped);
+    }
+    return "";
+  });
+  const normalizedText = cleanedText.replace(/\n{3,}/g, "\n\n").trim();
+  return { text: normalizedText, mediaUrls };
+}
+
 function shouldSuppressReasoningReply(payload: ReplyPayload): boolean {
   if (payload.isReasoning === true) {
     return true;
@@ -48,15 +66,20 @@ export async function deliverWebReply(params: {
   }
   const tableMode = params.tableMode ?? "code";
   const chunkMode = params.chunkMode ?? "length";
-  const convertedText = markdownToWhatsApp(
-    convertMarkdownTables(replyResult.text || "", tableMode),
-  );
-  const textChunks = chunkMarkdownTextWithMode(convertedText, textLimit, chunkMode);
-  const mediaList = replyResult.mediaUrls?.length
+  const explicitMediaList = replyResult.mediaUrls?.length
     ? replyResult.mediaUrls
     : replyResult.mediaUrl
       ? [replyResult.mediaUrl]
       : [];
+  const extractedFromText =
+    explicitMediaList.length === 0
+      ? extractMarkdownImageMedia(replyResult.text || "")
+      : { text: replyResult.text || "", mediaUrls: [] as string[] };
+  const convertedText = markdownToWhatsApp(
+    convertMarkdownTables(extractedFromText.text, tableMode),
+  );
+  const textChunks = chunkMarkdownTextWithMode(convertedText, textLimit, chunkMode);
+  const mediaList = explicitMediaList.length ? explicitMediaList : extractedFromText.mediaUrls;
 
   const sendWithRetry = async (fn: () => Promise<unknown>, label: string, maxAttempts = 3) => {
     let lastErr: unknown;
